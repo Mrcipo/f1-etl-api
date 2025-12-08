@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: f1-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: f1db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Er4462471
+    ports:
+      - "5433:5432"        # HOST 5433  -> CONTENEDOR 5432  (ESTO ES LO IMPORTANTE)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
