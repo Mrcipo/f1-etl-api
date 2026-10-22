@@ -1,240 +1,122 @@
-# F1 ETL & Analytics API (Django + PostgreSQL + Pandas)
+🌐 **English** · [Español](README.es.md)
 
-Este proyecto implementa un pipeline completo **Extract → Transform → Load (ETL)** para Fórmula 1, consumiendo datos de la API pública de Jolpi/Ergast, procesándolos con pandas y exponiéndolos mediante una API REST construida con Django REST Framework.
+# F1 ETL & Analytics API
 
-El objetivo es servir como proyecto demostrativo para portfolio: integra manejo de datos, modelado relacional, automatización y diseño de APIs analíticas.
+[![CI](https://github.com/Mrcipo/f1-etl-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrcipo/f1-etl-api/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![pandas](https://img.shields.io/badge/pandas-2.3-150458?logo=pandas&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
+An **Extract → Transform → Load** pipeline for Formula 1 data. It pulls seasons from the public
+[Jolpi/Ergast API](https://github.com/jolpica/jolpica-f1), cleans them and computes per-season metrics
+with pandas, stores everything in PostgreSQL and serves it through a read-only REST API built with
+Django REST Framework.
 
-## 🚀 Tecnologías principales
+## Architecture
 
-- **Python 3.12**
-- **Django 6** + **Django REST Framework**
-- **PostgreSQL**
-- **Pandas**
-- **Pydantic**
-- Programación ETL modular
-- API pública: **Jolpi/Ergast**
+```mermaid
+flowchart LR
+    API[(Jolpi / Ergast API)] -->|requests + retries| E[Extract<br/>etl/extract]
+    E -->|raw JSON| T[Transform<br/>parsers · cleaners<br/>validators · calculators]
+    T -->|pandas DataFrames| L[Load<br/>upserts / replace]
+    L --> DB[(PostgreSQL)]
+    DB --> DRF[Django REST Framework<br/>/api/v1/]
+    DRF --> Docs[Swagger / ReDoc]
+```
 
----
+| Layer | What it does |
+|-------|--------------|
+| `etl/extract` | HTTP client with exponential backoff; fetches races, results, qualifying and standings per season. Can save the raw JSON to `data/raw/`. |
+| `etl/transform` | Parses JSON into DataFrames, normalises types (DNFs keep a null position), validates required columns and computes driver/constructor metrics (wins, podiums, poles, DNFs, positions gained, consistency, one-two finishes, reliability). |
+| `etl/load` | Upserts drivers, constructors, circuits and races; replaces results, qualifying, standings and metrics per race/season, so re-running a season does not create duplicates. |
+| `etl/orchestrator.py` | Runs the three phases per season and records each run in the `ETLRun` table (`SUCCESS`, `PARTIAL` or `FAILED`). |
+| `core/` | Django models, serializers and read-only views. |
 
-## 📦 Instalación y configuración
+## Quick start
 
-### 1. Clonar el repositorio
+Requirements: Python 3.12+ and PostgreSQL (local or via Docker).
+
 ```bash
-git clone https://github.com/tuusuario/f1-etl-api.git
+git clone https://github.com/Mrcipo/f1-etl-api.git
 cd f1-etl-api
-```
-
-### 2. Crear entorno virtual
-```bash
 python -m venv venv
-source venv/bin/activate     # Linux/Mac
-venv\Scripts\activate        # Windows
-```
-
-### 3. Instalar dependencias
-```bash
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-### 4. Crear archivo `.env`
+cp .env.example .env            # then set DB_PASSWORD and DJANGO_SECRET_KEY
+docker compose up -d db         # optional: PostgreSQL 16 using the values in .env
 
-Crear `.env` en la raíz del proyecto y completar con tus credenciales locales:
-```env
-SECRET_KEY=REPLACE_ME
-DB_NAME=f1_database
-DB_USER=postgres
-DB_PASSWORD=REPLACE_ME
-DB_HOST=localhost
-DB_PORT=5432
-ENV=development
-```
-
-> **Nota:** El proyecto incluye `.gitignore` para evitar subir el `.env` real.
-
-### 5. Crear base de datos en PostgreSQL
-```sql
-CREATE DATABASE f1_database;
-```
-
-### 6. Aplicar migraciones
-```bash
 python manage.py migrate
-```
-
----
-
-## 🏎️ Ejecutar el ETL
-
-El proyecto incluye un comando personalizado de Django:
-
-### Cargar una temporada específica
-```bash
 python manage.py run_etl --mode season --seasons 2023
-```
-
-### Cargar la temporada más reciente
-```bash
-python manage.py run_etl --mode incremental
-```
-
-### Cargar múltiples temporadas
-```bash
-python manage.py run_etl --mode season --seasons 2022 2023 2024
-```
-
-> Los datos se guardan en PostgreSQL listos para consulta.
-
----
-
-## 🌐 Iniciar la API
-```bash
 python manage.py runserver
 ```
 
-La API estará disponible en:
+The API is then available at `http://127.0.0.1:8000/api/v1/`, with interactive docs at
+`/api/docs/` (Swagger UI) and `/api/redoc/`.
 
-**http://127.0.0.1:8000/api/v1/**
+## Running the ETL
 
-### Endpoints principales
-
-| Endpoint                                    | Descripción                       |
-|---------------------------------------------|-----------------------------------|
-| `/api/v1/drivers/`                          | Pilotos                           |
-| `/api/v1/constructors/`                     | Equipos                           |
-| `/api/v1/circuits/`                         | Circuitos                         |
-| `/api/v1/races/`                            | Carreras                          |
-| `/api/v1/results/`                          | Resultados                        |
-| `/api/v1/qualifying/`                       | Clasificación                     |
-| `/api/v1/metrics/drivers/`                  | Métricas por piloto               |
-| `/api/v1/metrics/constructors/`             | Métricas por constructor          |
-| `/api/v1/standings/drivers/?season=2024`    | Posiciones finales                |
-| `/api/v1/analytics/compare/drivers/`        | Comparación analítica             |
-
-### Documentación interactiva
-
-- **Swagger UI:** http://127.0.0.1:8000/api/docs/
-- **ReDoc:** http://127.0.0.1:8000/api/redoc/
-
----
-
-## 📊 Diagrama del pipeline (simplificado)
-```
-+-------------+       +---------------+      +--------------+
-|  EXTRACT    | --->  |  TRANSFORM    | ---> |     LOAD     |
-+-------------+       +---------------+      +--------------+
-       |                      |                      |
-       v                      v                      v
-API Jolpi/Ergast     Limpieza, normalización    PostgreSQL
-                    métricas con pandas      (modelo relacional)
-                                                     |
-                                                     v
-                                              Django REST API
+```bash
+python manage.py run_etl --mode season --seasons 2022 2023 2024   # specific seasons
+python manage.py run_etl --mode backfill                          # START_SEASON..END_SEASON from etl/config.py (2010–2024)
+python manage.py run_etl --mode incremental                       # re-loads END_SEASON
+python check_and_run_etl.py                                       # only runs if the API has a newer race than the DB
 ```
 
----
+> **Note:** `incremental` mode currently re-processes the season set in `END_SEASON`
+> (`etl/config.py`), not the live current season. `check_and_run_etl.py` compares the last race in the
+> database with the API's last completed race before triggering a run, which makes it the better
+> option for a scheduled job (cron, Task Scheduler).
 
-## 🎯 Habilidades demostradas
+## API endpoints
 
-✅ Integración de APIs externas (Jolpi/Ergast)  
-✅ Diseño de pipelines ETL profesionales  
-✅ Limpieza y modelado de datos con pandas  
-✅ ORM avanzado con Django + PostgreSQL  
-✅ Construcción de API REST modular y escalable  
-✅ Manejo de `.env` y buenas prácticas de seguridad  
-✅ Automatización y logging estructurado  
-✅ Diseño orientado a portfolio  
+All endpoints are read-only (`GET`) and paginated (50 items per page).
 
----
+| Endpoint | Description |
+|----------|-------------|
+| `/api/v1/drivers/` | Drivers |
+| `/api/v1/constructors/` | Constructors |
+| `/api/v1/circuits/` | Circuits |
+| `/api/v1/races/` | Races (`/races/{id}/complete/` returns results, qualifying and standings in one response) |
+| `/api/v1/results/` | Race results |
+| `/api/v1/qualifying/` | Qualifying results |
+| `/api/v1/metrics/drivers/` | Per-season driver metrics |
+| `/api/v1/metrics/constructors/` | Per-season constructor metrics |
+| `/api/v1/standings/drivers/?season=2023` | Driver standings (latest round, or `&round=N`) |
+| `/api/v1/standings/constructors/?season=2023` | Constructor standings |
+| `/api/v1/analytics/compare/drivers/?driver_ids=a,b&season=2023` | Side-by-side driver comparison |
 
-## 📂 Estructura del proyecto
+## Tests
+
+```bash
+pytest
+```
+
+The suite covers the parsers, cleaners, validators and metric calculators, plus an end-to-end test that
+runs the full pipeline against a fake Ergast client (no network), loads into PostgreSQL, checks that a
+second run is idempotent and queries the REST endpoints. It needs a reachable PostgreSQL configured
+through `.env`; CI runs it against a `postgres:16` service container.
+
+## Project structure
+
 ```
 f1-etl-api/
-├── core/                      # App principal de Django
-│   ├── models.py              # Modelos de datos (Driver, Race, Result, etc.)
-│   ├── serializers.py         # Serializers de DRF
-│   ├── views.py               # ViewSets y vistas personalizadas
-│   ├── urls.py                # Configuración de rutas
-│   └── management/
-│       └── commands/
-│           └── run_etl.py     # Comando personalizado para ETL
-├── etl/                       # Módulo ETL
-│   ├── config.py              # Configuración del ETL
-│   ├── extract/               # Capa de extracción
-│   ├── transform/             # Capa de transformación
-│   ├── load/                  # Capa de carga
-│   ├── orchestrator.py        # Orquestador del pipeline
-│   └── run_etl.py             # Script standalone (opcional)
-├── f1api/                     # Configuración del proyecto Django
-│   ├── settings.py            # Settings con DRF configurado
-│   ├── urls.py                # URLs principales
-│   └── wsgi.py
-├── requirements.txt           # Dependencias del proyecto
-├── .env.example               # Ejemplo de variables de entorno
-├── .gitignore
-└── README.md
+├── core/                 # Django app: models, serializers, views, admin, run_etl command
+├── etl/
+│   ├── extract/          # Ergast client, retries, extractors
+│   ├── transform/        # parsers, cleaners, validators, calculators
+│   ├── load/             # upserts and bulk operations
+│   ├── orchestrator.py   # pipeline coordination + ETLRun tracking
+│   └── config.py         # season range, retry settings
+├── f1api/                # Django project settings and URLs
+├── tests/                # pytest suite with synthetic API fixtures
+├── check_and_run_etl.py  # "only run if there is a new race" helper
+└── docker-compose.yml    # PostgreSQL 16 for local development
 ```
 
----
+## License
 
-## 🛠️ Comandos útiles
-
-### Crear superusuario (para Django Admin)
-```bash
-python manage.py createsuperuser
-```
-
-### Ver logs del ETL
-
-Los logs se guardan en `f1api.log` y también se muestran en consola.
-
-### Acceder al Django Admin
-
-http://127.0.0.1:8000/admin/
-
----
-
-## 🔄 Automatización con Cron (Producción)
-
-Para ejecutar el ETL automáticamente en un servidor:
-```bash
-# ETL incremental diario a las 02:00 UTC
-0 2 * * * /ruta/a/venv/bin/python /ruta/a/proyecto/manage.py run_etl --mode incremental >> /var/log/f1_etl.log 2>&1
-
-# Backfill mensual el día 1 a las 04:00 UTC
-0 4 1 * * /ruta/a/venv/bin/python /ruta/a/proyecto/manage.py run_etl --mode backfill >> /var/log/f1_etl_backfill.log 2>&1
-```
-
----
-
-## 🧪 Testing (Futuro)
-```bash
-python manage.py test
-```
-
----
-
-## 📝 Licencia
-
-Este proyecto es de código abierto y está disponible bajo la licencia MIT.
-
----
-
-## 👤 Autor
-
-**Tu Nombre**  
-📧 maty.riffo@gmail.com  
-🔗 [GitHub](https://github.com/Mrcipo)
-
----
-
-## ⭐ ¿Te gustó el proyecto?
-
-Si este proyecto te resultó útil, no olvides darle una estrella ⭐ en GitHub.
-
----
-
-**✔️ Listo para ejecutar localmente**
-
-Con estas instrucciones cualquier persona puede clonar, configurar y correr el proyecto sin dificultades.
+Released under the [MIT License](LICENSE). Data comes from the Jolpi/Ergast API; check its terms before
+redistributing it.
